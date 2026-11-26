@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Mapping, Sequence
 
 from ir_system.models import PositionalIndex
+from ir_system.retrieval import ClauseMatchResult, QueryResult
 from ir_system.vector_space import VectorSpaceModel
 
 
@@ -31,8 +32,8 @@ def _render_pipe_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) ->
     return "\n".join([header_line, separator_line, *body_lines])
 
 
-def format_documents_table(index: PositionalIndex) -> str:
-    """Format the Corpus Documents table with File, Exact document text, and Word count."""
+def documents_table_data(index: PositionalIndex) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and rows for the Corpus Documents table."""
     headers = ("File", "Exact document text", "Word count")
     rows = [
         (
@@ -42,7 +43,24 @@ def format_documents_table(index: PositionalIndex) -> str:
         )
         for doc in index.documents
     ]
-    return _render_pipe_table(headers, rows)
+    return headers, rows
+
+
+def format_documents_table(index: PositionalIndex) -> str:
+    """Format the Corpus Documents table with File, Exact document text, and Word count."""
+    return _render_pipe_table(*documents_table_data(index))
+
+
+def positional_index_table_data(
+    index: PositionalIndex,
+) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and rows for the Positional Index table."""
+    headers = ("Term", "Document IDs and 1-based positions")
+    rows = [
+        (term, format_postings_entry(doc_postings))
+        for term, doc_postings in index.postings.items()
+    ]
+    return headers, rows
 
 
 def format_positional_index_table(index: PositionalIndex) -> str:
@@ -89,11 +107,11 @@ def format_matrix_cell(value: int | float) -> str:
     return f"{value:.4f}"
 
 
-def _format_term_doc_matrix(
+def term_doc_matrix_data(
     model: VectorSpaceModel,
     matrix: Mapping[str, Mapping[str, int | float]],
-) -> str:
-    """Render a Term x Document weighting matrix using reference cell formatting."""
+) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and formatted rows for a Term x Document weighting matrix."""
     headers = ("Term", *model.doc_ids)
     rows = [
         (
@@ -102,7 +120,15 @@ def _format_term_doc_matrix(
         )
         for term in model.terms
     ]
-    return _render_pipe_table(headers, rows)
+    return headers, rows
+
+
+def _format_term_doc_matrix(
+    model: VectorSpaceModel,
+    matrix: Mapping[str, Mapping[str, int | float]],
+) -> str:
+    """Render a Term x Document weighting matrix using reference cell formatting."""
+    return _render_pipe_table(*term_doc_matrix_data(model, matrix))
 
 
 def format_raw_tf_table(model: VectorSpaceModel) -> str:
@@ -115,14 +141,19 @@ def format_weighted_tf_table(model: VectorSpaceModel) -> str:
     return _format_term_doc_matrix(model, model.weighted_tf)
 
 
-def format_df_idf_table(model: VectorSpaceModel) -> str:
-    """Format the DF and base-10 IDF table with dynamic Corpus size N."""
+def df_idf_table_data(model: VectorSpaceModel) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and rows for the DF and base-10 IDF table."""
     headers = ("Term", "DF", f"IDF = log10({model.doc_count} / DF)")
     rows = [
         (term, str(model.df[term]), f"{model.idf[term]:.4f}")
         for term in model.terms
     ]
-    return _render_pipe_table(headers, rows)
+    return headers, rows
+
+
+def format_df_idf_table(model: VectorSpaceModel) -> str:
+    """Format the DF and base-10 IDF table with dynamic Corpus size N."""
+    return _render_pipe_table(*df_idf_table_data(model))
 
 
 def format_tf_idf_table(model: VectorSpaceModel) -> str:
@@ -130,14 +161,21 @@ def format_tf_idf_table(model: VectorSpaceModel) -> str:
     return _format_term_doc_matrix(model, model.tf_idf)
 
 
-def format_doc_lengths_table(model: VectorSpaceModel) -> str:
-    """Format the Document Vector Lengths table."""
+def doc_lengths_table_data(
+    model: VectorSpaceModel,
+) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and rows for the Document Vector Lengths table."""
     headers = ("Document", "Vector length")
     rows = [
         (doc_id, f"{model.doc_lengths[doc_id]:.4f}")
         for doc_id in model.doc_ids
     ]
-    return _render_pipe_table(headers, rows)
+    return headers, rows
+
+
+def format_doc_lengths_table(model: VectorSpaceModel) -> str:
+    """Format the Document Vector Lengths table."""
+    return _render_pipe_table(*doc_lengths_table_data(model))
 
 
 def format_normalized_tf_idf_table(model: VectorSpaceModel) -> str:
@@ -157,3 +195,101 @@ def format_part_b_output(model: VectorSpaceModel) -> str:
     ]
     return "\n\n".join(sections)
 
+
+def query_heading_label(result: QueryResult) -> str:
+    """Return a reference-style heading label for a Phrase or Boolean QueryResult."""
+    parsed = result.parsed_query
+    if parsed.query_type == "phrase":
+        return f'Phrase query: "{result.raw_query}"'
+    operators = [clause.operator for clause in parsed.clauses[1:] if clause.operator is not None]
+    if operators == ["AND"]:
+        return f'Boolean AND: "{result.raw_query}"'
+    if operators == ["AND NOT"]:
+        return f'Boolean AND NOT: "{result.raw_query}"'
+    return f'Boolean query: "{result.raw_query}"'
+
+
+def clause_matches_table_data(
+    clause_result: ClauseMatchResult,
+) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and rows for a ClauseMatchResult's phrase match positions and ranges."""
+    headers = ("Matched document", "Starting positions", "Phrase token ranges")
+    rows = [
+        (match.doc_id, match.formatted_positions, match.formatted_ranges)
+        for match in clause_result.matches
+    ]
+    return headers, rows
+
+
+def query_weights_table_data(result: QueryResult) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and 4-decimal rows for a Query Vector's per-Term weights."""
+    headers = ("Query term", "Weighted TF", "Query TF-IDF", "Normalized query weight")
+    rows = [
+        (
+            weight.term,
+            f"{weight.weighted_tf:.4f}",
+            f"{weight.tf_idf:.4f}",
+            f"{weight.normalized_weight:.4f}",
+        )
+        for weight in result.term_weights
+    ]
+    return headers, rows
+
+
+def query_similarity_table_data(
+    result: QueryResult,
+    *,
+    preserve_ranking_order: bool = False,
+) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
+    """Return headers and 4-decimal rows for matched Document Similarity Scores."""
+    headers = ("Matched document", "Similarity")
+    if preserve_ranking_order:
+        ordered = result.ranked_documents
+    else:
+        by_doc = {item.doc_id: item for item in result.ranked_documents}
+        ordered = tuple(by_doc[doc_id] for doc_id in result.matched_doc_ids if doc_id in by_doc)
+    rows = [(item.doc_id, f"{item.similarity:.4f}") for item in ordered]
+    return headers, rows
+
+
+def format_query_result(result: QueryResult) -> str:
+    """Format a single QueryResult with positions/ranges, 6-decimal length, and 4-decimal scores."""
+    lines = [query_heading_label(result)]
+
+    if result.parsed_query.query_type == "phrase":
+        headers, rows = clause_matches_table_data(result.clause_matches[0])
+        if rows:
+            lines.append(_render_pipe_table(headers, rows))
+        else:
+            lines.append("No matching documents.")
+    else:
+        matched_str = ", ".join(result.matched_doc_ids) if result.matched_doc_ids else "None"
+        lines.append(f"Matched documents: {matched_str}")
+        for clause_result in result.clause_matches:
+            clause_phrase = " ".join(clause_result.clause.tokens)
+            prefix = f"{clause_result.clause.operator} " if clause_result.clause.operator else ""
+            headers, rows = clause_matches_table_data(clause_result)
+            if rows:
+                lines.append(f'Clause {prefix}"{clause_phrase}":\n{_render_pipe_table(headers, rows)}')
+            else:
+                lines.append(f'Clause {prefix}"{clause_phrase}": No matching documents.')
+
+    lines.append(f"Query vector length = {result.query_length:.6f}")
+    w_headers, w_rows = query_weights_table_data(result)
+    lines.append(_render_pipe_table(w_headers, w_rows))
+
+    s_headers, s_rows = query_similarity_table_data(result)
+    if s_rows:
+        lines.append(_render_pipe_table(s_headers, s_rows))
+        lines.append(f"Ranking (highest similarity first): {result.ranking_expression}")
+    else:
+        lines.append("No matching documents.")
+
+    return "\n\n".join(lines)
+
+
+def format_query_results(results: Sequence[QueryResult]) -> str:
+    """Format all QueryResults into a clean multi-section text block."""
+    if not results:
+        return "No queries executed."
+    return "\n\n".join(format_query_result(result) for result in results)
