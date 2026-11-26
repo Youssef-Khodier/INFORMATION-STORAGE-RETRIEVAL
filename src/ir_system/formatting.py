@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Mapping, Sequence
 
 from ir_system.models import PositionalIndex
+from ir_system.vector_space import VectorSpaceModel
 
 
 def format_postings_entry(doc_postings: Mapping[str, tuple[int, ...]]) -> str:
@@ -78,5 +79,81 @@ def format_part_a_output(index: PositionalIndex) -> str:
     sections.append(
         f"Positional Index ({len(index.postings)} Terms):\n{format_positional_index_table(index)}"
     )
+    return "\n\n".join(sections)
+
+
+def format_matrix_cell(value: int | float) -> str:
+    """Format a matrix cell as '0' when zero and to 4 decimal places when nonzero."""
+    if value == 0:
+        return "0"
+    return f"{value:.4f}"
+
+
+def _format_term_doc_matrix(
+    model: VectorSpaceModel,
+    matrix: Mapping[str, Mapping[str, int | float]],
+) -> str:
+    """Render a Term x Document weighting matrix using reference cell formatting."""
+    headers = ("Term", *model.doc_ids)
+    rows = [
+        (
+            term,
+            *(format_matrix_cell(matrix[term][doc_id]) for doc_id in model.doc_ids),
+        )
+        for term in model.terms
+    ]
+    return _render_pipe_table(headers, rows)
+
+
+def format_raw_tf_table(model: VectorSpaceModel) -> str:
+    """Format the Raw TF Term x Document matrix."""
+    return _format_term_doc_matrix(model, model.raw_tf)
+
+
+def format_weighted_tf_table(model: VectorSpaceModel) -> str:
+    """Format the Weighted TF Term x Document matrix."""
+    return _format_term_doc_matrix(model, model.weighted_tf)
+
+
+def format_df_idf_table(model: VectorSpaceModel) -> str:
+    """Format the DF and base-10 IDF table with dynamic Corpus size N."""
+    headers = ("Term", "DF", f"IDF = log10({model.doc_count} / DF)")
+    rows = [
+        (term, str(model.df[term]), f"{model.idf[term]:.4f}")
+        for term in model.terms
+    ]
+    return _render_pipe_table(headers, rows)
+
+
+def format_tf_idf_table(model: VectorSpaceModel) -> str:
+    """Format the TF-IDF Weight Term x Document matrix."""
+    return _format_term_doc_matrix(model, model.tf_idf)
+
+
+def format_doc_lengths_table(model: VectorSpaceModel) -> str:
+    """Format the Document Vector Lengths table."""
+    headers = ("Document", "Vector length")
+    rows = [
+        (doc_id, f"{model.doc_lengths[doc_id]:.4f}")
+        for doc_id in model.doc_ids
+    ]
+    return _render_pipe_table(headers, rows)
+
+
+def format_normalized_tf_idf_table(model: VectorSpaceModel) -> str:
+    """Format the Normalized TF-IDF Term x Document matrix."""
+    return _format_term_doc_matrix(model, model.normalized_tf_idf)
+
+
+def format_part_b_output(model: VectorSpaceModel) -> str:
+    """Format all Part B vector-space weighting tables in reference order."""
+    sections = [
+        f"Raw TF:\n{format_raw_tf_table(model)}",
+        f"Weighted TF: 1 + log10(TF):\n{format_weighted_tf_table(model)}",
+        f"DF and IDF:\n{format_df_idf_table(model)}",
+        f"TF-IDF Matrix:\n{format_tf_idf_table(model)}",
+        f"Document Vector Lengths:\n{format_doc_lengths_table(model)}",
+        f"Normalized TF-IDF Matrix:\n{format_normalized_tf_idf_table(model)}",
+    ]
     return "\n\n".join(sections)
 
