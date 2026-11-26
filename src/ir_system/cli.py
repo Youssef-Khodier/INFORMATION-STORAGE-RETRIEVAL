@@ -5,7 +5,8 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-from ir_system.formatting import format_part_a_output
+from ir_system.formatting import format_part_a_output, format_part_b_output
+from ir_system.retrieval import build_vector_space_model
 from ir_system.spark_indexer import (
     build_positional_index,
     export_positional_index,
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the Part A Positional Index CLI and return a process exit code."""
+    """Run the Part A Positional Index and Part B Vector-Space CLI."""
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -66,7 +67,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             corpus_dir = args.corpus if args.corpus is not None else _default_corpus_dir()
             index = build_positional_index(corpus_dir, master=args.master)
 
+        vector_space = build_vector_space_model(index)
+
         print(format_part_a_output(index))
+        print()
+        print(format_part_b_output(vector_space))
 
         if args.export_dir is not None:
             exported_path = export_positional_index(index, args.export_dir)

@@ -42,6 +42,15 @@ def test_cli_from_index_prints_documents_warnings_and_positional_index(
     assert "blank.txt" in captured.out
     assert "learning | d1: 2" in captured.out
     assert "data | d2: 1" in captured.out
+    assert "Raw TF:" in captured.out
+    assert "Weighted TF: 1 + log10(TF):" in captured.out
+    assert "DF and IDF:" in captured.out
+    assert "IDF = log10(2 / DF)" in captured.out
+    assert "TF-IDF Matrix:" in captured.out
+    assert "Document Vector Lengths:" in captured.out
+    assert "Normalized TF-IDF Matrix:" in captured.out
+    assert "0.4257" in captured.out
+    assert "0.7071" in captured.out
 
 
 def test_cli_missing_corpus_returns_nonzero_exit_code(
@@ -84,6 +93,14 @@ def test_cli_subprocess_smoke_indexes_technology_corpus_and_exports(
     assert "Positional Index (27 Terms):" in result.stdout
     assert "cloud | d6: 1; d9: 1, 3" in result.stdout
     assert "machine | d1: 1; d2: 1; d5: 1, 3, 9; d7: 4; d10: 1, 5" in result.stdout
+    assert "Raw TF:" in result.stdout
+    assert "Weighted TF: 1 + log10(TF):" in result.stdout
+    assert "IDF = log10(10 / DF)" in result.stdout
+    assert "TF-IDF Matrix:" in result.stdout
+    assert "Document Vector Lengths:" in result.stdout
+    assert "Normalized TF-IDF Matrix:" in result.stdout
+    assert "0.4257" in result.stdout
+    assert "1.8031" in result.stdout
 
     reloaded = load_positional_index(export_dir / "positional_index.json")
     assert reloaded.doc_count == 10

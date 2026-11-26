@@ -52,3 +52,69 @@ def test_format_documents_and_positional_index_tables_include_warnings_and_rows(
     assert "Positional Index (27" not in full_output
     assert "Positional Index (5 Terms)" in full_output
 
+
+def test_format_part_b_tables_match_pdf_conventions_and_dynamic_corpus_header() -> None:
+    """Verify Part B formatters use '0' for zero cells, 4 decimals for weights, and dynamic N."""
+    from ir_system.formatting import (
+        format_df_idf_table,
+        format_doc_lengths_table,
+        format_matrix_cell,
+        format_normalized_tf_idf_table,
+        format_part_b_output,
+        format_raw_tf_table,
+        format_tf_idf_table,
+        format_weighted_tf_table,
+    )
+    from ir_system.vector_space import build_vector_space_model
+
+    index = PositionalIndex(
+        documents=(
+            DocumentRecord(doc_id="d1", text="shared unique", word_count=2),
+            DocumentRecord(doc_id="d2", text="shared shared", word_count=2),
+        ),
+        postings={
+            "shared": {"d1": (1,), "d2": (1, 2)},
+            "unique": {"d1": (2,)},
+        },
+    )
+    model = build_vector_space_model(index)
+
+    assert format_matrix_cell(0) == "0"
+    assert format_matrix_cell(0.0) == "0"
+    assert format_matrix_cell(2) == "2.0000"
+    assert format_matrix_cell(1.30102999) == "1.3010"
+
+    raw_tf_table = format_raw_tf_table(model)
+    assert "1.0000" in raw_tf_table
+    assert "2.0000" in raw_tf_table
+    assert "0" in raw_tf_table
+
+    weighted_tf_table = format_weighted_tf_table(model)
+    assert "1.3010" in weighted_tf_table
+
+    df_idf_table = format_df_idf_table(model)
+    assert "IDF = log10(2 / DF)" in df_idf_table
+    assert "0.0000" in df_idf_table
+    assert "0.3010" in df_idf_table
+
+    tf_idf_table = format_tf_idf_table(model)
+    assert "0.3010" in tf_idf_table
+
+    doc_lengths_table = format_doc_lengths_table(model)
+    assert "0.3010" in doc_lengths_table
+    assert "0.0000" in doc_lengths_table
+
+    norm_table = format_normalized_tf_idf_table(model)
+    assert "1.0000" in norm_table
+
+    part_b_output = format_part_b_output(model)
+    for heading in (
+        "Raw TF",
+        "Weighted TF: 1 + log10(TF)",
+        "DF and IDF",
+        "TF-IDF Matrix",
+        "Document Vector Lengths",
+        "Normalized TF-IDF Matrix",
+    ):
+        assert heading in part_b_output
+
