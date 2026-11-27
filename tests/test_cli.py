@@ -189,3 +189,53 @@ def test_cli_from_index_supports_adhoc_query_mode_and_export_roundtrip(
     bad_captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert "Error:" in bad_captured.err
 
+
+def test_cli_mode_without_query_exits_with_clear_error(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Verify specifying a non-default --mode without --query returns an explicit error."""
+    from ir_system.cli import main
+
+    sample = PositionalIndex(
+        documents=(DocumentRecord(doc_id="d1", text="alpha beta", word_count=2),),
+        postings={"alpha": {"d1": (1,)}, "beta": {"d1": (2,)}},
+    )
+    exported = export_positional_index(sample, tmp_path / "seed")
+
+    for mode in ("term", "phrase", "boolean"):
+        exit_code = main(["--from-index", str(exported), "--mode", mode])
+        assert exit_code == 1
+        captured = capsys.readouterr()  # type: ignore[attr-defined]
+        assert "Error:" in captured.err
+        assert "--mode" in captured.err
+        assert "--query" in captured.err
+
+
+def test_cli_custom_corpus_without_query_skips_technology_queries(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    """Verify --corpus on a non-Technology folder without --query prints Part A + B without Technology queries."""
+    from ir_system.cli import main
+
+    custom_dir = tmp_path / "energy_corpus"
+    custom_dir.mkdir()
+    (custom_dir / "alpha.txt").write_text("solar energy grid", encoding="utf-8")
+    (custom_dir / "beta.txt").write_text("wind energy storage", encoding="utf-8")
+    export_dir = tmp_path / "custom_out"
+
+    exit_code = main(["--corpus", str(custom_dir), "--export-dir", str(export_dir)])
+    assert exit_code == 0
+
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    assert "Documents (N = 2):" in captured.out
+    assert "IDF = log10(2 / DF)" in captured.out
+    assert "No queries executed." in captured.out
+    assert "machine learning" not in captured.out
+    assert "data science" not in captured.out
+
+    report_text = (export_dir / "report.md").read_text(encoding="utf-8")
+    assert "_No queries executed._" in report_text
+    assert "machine learning" not in report_text
+

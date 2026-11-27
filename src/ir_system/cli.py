@@ -10,9 +10,11 @@ from ir_system.formatting import (
     format_part_b_output,
     format_query_results,
 )
+from ir_system.models import default_corpus_dir, is_technology_corpus
 from ir_system.report import export_markdown_report
 from ir_system.retrieval import (
     DEFAULT_TECHNOLOGY_QUERIES,
+    QueryResult,
     build_vector_space_model,
     normalize_query_mode,
     run_queries,
@@ -22,14 +24,6 @@ from ir_system.spark_indexer import (
     export_positional_index,
     load_positional_index,
 )
-
-
-def _default_corpus_dir() -> Path:
-    """Resolve the default Technology Corpus directory."""
-    cwd_candidate = Path("data") / "2. Technology"
-    if cwd_candidate.is_dir():
-        return cwd_candidate
-    return Path(__file__).resolve().parent.parent.parent / "data" / "2. Technology"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,8 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=None,
         help=(
-            "Query string to execute (repeatable). When omitted, runs the 4 assigned "
-            "Technology queries."
+            "Query string to execute (repeatable). When omitted on the Technology Corpus, "
+            "runs the 4 assigned Technology queries."
         ),
     )
     parser.add_argument(
@@ -71,11 +65,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional output directory to write positional_index.json and report.md.",
     )
-    parser.add_argument(
-        "--master",
-        default="local[*]",
-        help="Spark master URL for Part A indexing (default: local[*]).",
-    )
     return parser
 
 
@@ -86,21 +75,33 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         canonical_mode = normalize_query_mode(args.mode)
+        if args.query is None and canonical_mode != "auto":
+            raise ValueError(f"--mode '{canonical_mode}' requires --query.")
+
+        corpus_dir: Path | None = None
         if args.from_index is not None:
             index = load_positional_index(args.from_index)
         else:
-            corpus_dir = args.corpus if args.corpus is not None else _default_corpus_dir()
-            index = build_positional_index(corpus_dir, master=args.master)
+            corpus_dir = args.corpus if args.corpus is not None else default_corpus_dir()
+            index = build_positional_index(corpus_dir)
 
         vector_space = build_vector_space_model(index)
-        target_queries = tuple(args.query) if args.query is not None else DEFAULT_TECHNOLOGY_QUERIES
-        effective_mode = canonical_mode if args.query is not None else "auto"
-        query_results = run_queries(
-            index,
-            queries=target_queries,
-            mode=effective_mode,
-            model=vector_space,
-        )
+        if args.query is not None:
+            query_results: tuple[QueryResult, ...] = run_queries(
+                index,
+                queries=tuple(args.query),
+                mode=canonical_mode,
+                model=vector_space,
+            )
+        elif is_technology_corpus(index, corpus_dir):
+            query_results = run_queries(
+                index,
+                queries=DEFAULT_TECHNOLOGY_QUERIES,
+                mode="auto",
+                model=vector_space,
+            )
+        else:
+            query_results = ()
 
         print(format_part_a_output(index))
         print()

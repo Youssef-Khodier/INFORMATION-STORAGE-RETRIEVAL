@@ -38,6 +38,56 @@ def test_startup_autoloads_technology_corpus_and_renders_tabs() -> None:
     assert list(pos_df.columns) == ["Term", "Document IDs and 1-based positions"]
     assert len(pos_df) == 27
 
+    assert at.download_button(key="download_report_btn").label == "Download Report (Markdown)"
+    upload_radio = at.radio(key="upload_mode")
+    assert upload_radio.value == "Select .txt files"
+    assert upload_radio.options == ["Select .txt files", "Select a folder"]
+    upload_radio.set_value("Select a folder").run()
+    assert not at.exception
+    assert at.radio(key="upload_mode").value == "Select a folder"
+
+
+def test_startup_report_markdown_populates_default_technology_queries(
+    technology_index: object,
+) -> None:
+    """Verify startup report includes all 4 Technology queries before manual query entry, and stays empty for custom corpora."""
+    from ir_system.gui import build_report_markdown
+    from ir_system.models import DocumentRecord, PositionalIndex
+    from ir_system.vector_space import build_vector_space_model
+
+    assert isinstance(technology_index, PositionalIndex)
+    tech_model = build_vector_space_model(technology_index)
+    tech_report = build_report_markdown(technology_index, tech_model, ())
+    assert "_No queries executed._" not in tech_report
+    for expected in (
+        "0.425721",
+        "0.545341",
+        "0.691834",
+        "0.5113",
+        "d1 > d5 > d10 > d2 > d7",
+        "d5 > d3 > d8",
+        "d1 > d10 > d2 > d7",
+    ):
+        assert expected in tech_report
+
+    custom_index = PositionalIndex(
+        documents=(
+            DocumentRecord(doc_id="alpha", text="solar energy grid", word_count=3),
+            DocumentRecord(doc_id="beta", text="wind energy storage", word_count=3),
+        ),
+        postings={
+            "energy": {"alpha": (2,), "beta": (2,)},
+            "grid": {"alpha": (3,)},
+            "solar": {"alpha": (1,)},
+            "storage": {"beta": (3,)},
+            "wind": {"beta": (1,)},
+        },
+    )
+    custom_model = build_vector_space_model(custom_index)
+    custom_report = build_report_markdown(custom_index, custom_model, ())
+    assert "_No queries executed._" in custom_report
+    assert "machine learning" not in custom_report
+
 
 def test_query_modes_quick_fill_and_live_execution() -> None:
     """Query panel supports 4 modes, validation errors, quick-fill buttons, and live outputs."""

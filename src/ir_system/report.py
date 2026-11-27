@@ -4,10 +4,11 @@ from pathlib import Path
 from typing import Sequence
 
 from ir_system.formatting import (
-    clause_matches_table_data,
+    clause_match_sections,
     df_idf_table_data,
     doc_lengths_table_data,
     documents_table_data,
+    matched_docs_text,
     positional_index_table_data,
     query_heading_label,
     query_similarity_table_data,
@@ -40,21 +41,18 @@ def _render_markdown_table(headers: Sequence[str], rows: Sequence[Sequence[str]]
 def _render_query_markdown_section(result: QueryResult) -> str:
     """Render a single QueryResult as a Markdown subsection."""
     lines: list[str] = [f"### {query_heading_label(result)}"]
+    sections = clause_match_sections(result, backticks=True)
 
     if result.parsed_query.query_type == "phrase":
-        headers, rows = clause_matches_table_data(result.clause_matches[0])
+        _, headers, rows = sections[0]
         if rows:
             lines.append(_render_markdown_table(headers, rows))
         else:
             lines.append("_No matching documents._")
     else:
-        matched_text = ", ".join(result.matched_doc_ids) if result.matched_doc_ids else "None"
-        lines.append(f"**Matched documents:** `{matched_text}`")
-        for clause_result in result.clause_matches:
-            clause_phrase = " ".join(clause_result.clause.tokens)
-            prefix = f"{clause_result.clause.operator} " if clause_result.clause.operator else ""
-            lines.append(f"#### Clause {prefix}`{clause_phrase}`")
-            headers, rows = clause_matches_table_data(clause_result)
+        lines.append(f"**Matched documents:** `{matched_docs_text(result)}`")
+        for label, headers, rows in sections:
+            lines.append(f"#### {label}")
             if rows:
                 lines.append(_render_markdown_table(headers, rows))
             else:

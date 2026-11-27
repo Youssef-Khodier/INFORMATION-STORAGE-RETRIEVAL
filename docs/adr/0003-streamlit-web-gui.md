@@ -16,5 +16,5 @@ The project coversheet awards +1.0 bonus mark for a clear, usable GUI supporting
 
 ## Consequences
 
-- `streamlit` (and its required runtime libraries such as `pandas`) is added as an explicit, justified GUI dependency in `pyproject.toml`, while the core Part A (`spark_indexer.py`), Part B (`retrieval.py`), and CLI remain completely independent of Streamlit.
+- `streamlit` and `pandas` (used directly by `src/ir_system/gui.py` for `st.dataframe` tables) are added as explicit, justified GUI dependencies in `pyproject.toml`, while the core Part A (`spark_indexer.py`), Part B (`retrieval.py`), and CLI remain completely independent of Streamlit.
 - Because Streamlit re-runs its script on widget interactions, the PySpark `SparkSession` and indexed corpus must be cached so Spark runs only when importing/re-indexing a dataset, not on every query.

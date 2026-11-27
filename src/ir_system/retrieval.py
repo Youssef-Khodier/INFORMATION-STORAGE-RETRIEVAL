@@ -3,14 +3,18 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import math
-from typing import Sequence
+from typing import Literal, Sequence
 
 from ir_system.models import PositionalIndex, natural_sort_key
-from ir_system.vector_space import VectorSpaceModel, build_vector_space_model
+from ir_system.vector_space import VectorSpaceModel, build_vector_space_model, compute_weighted_tf
 
-QUERY_MODES: tuple[str, ...] = ("auto", "term", "phrase", "boolean")
+QueryMode = Literal["auto", "term", "phrase", "boolean"]
+QueryType = Literal["phrase", "boolean"]
+BooleanOperator = Literal["AND", "AND NOT"]
 
-_MODE_ALIASES: dict[str, str] = {
+QUERY_MODES: tuple[QueryMode, ...] = ("auto", "term", "phrase", "boolean")
+
+_MODE_ALIASES: dict[str, QueryMode] = {
     "auto": "auto",
     "term": "term",
     "term search": "term",
@@ -26,7 +30,7 @@ _MODE_ALIASES: dict[str, str] = {
 }
 
 
-def normalize_query_mode(mode: str) -> str:
+def normalize_query_mode(mode: str) -> QueryMode:
     """Normalize a query mode name or UI label to one of auto/term/phrase/boolean."""
     normalized = " ".join(mode.strip().lower().split())
     canonical = _MODE_ALIASES.get(normalized)
@@ -42,7 +46,7 @@ class QueryClause:
     """A single Phrase Query operand within a ParsedQuery."""
 
     tokens: tuple[str, ...]
-    operator: str | None = None
+    operator: BooleanOperator | None = None
     is_negated: bool = False
 
 
@@ -51,8 +55,8 @@ class ParsedQuery:
     """Validated query representation split into positive and excluded Phrase Query clauses."""
 
     raw_query: str
-    mode: str
-    query_type: str
+    mode: QueryMode
+    query_type: QueryType
     clauses: tuple[QueryClause, ...]
 
     @property
@@ -66,11 +70,26 @@ class ParsedQuery:
         return tuple(clause.tokens for clause in self.clauses if clause.is_negated)
 
 
+def _flush_clause(
+    clauses: list[QueryClause],
+    raw_tokens: Sequence[str],
+    operator: BooleanOperator | None,
+) -> None:
+    """Lowercase raw clause tokens and append a QueryClause to clauses."""
+    clauses.append(
+        QueryClause(
+            tokens=tuple(tok.lower() for tok in raw_tokens),
+            operator=operator,
+            is_negated=(operator == "AND NOT"),
+        )
+    )
+
+
 def _split_boolean_clauses(raw_tokens: list[str]) -> tuple[list[QueryClause], bool]:
     """Split raw whitespace tokens on case-sensitive uppercase AND NOT / AND operators."""
     clauses: list[QueryClause] = []
     current_tokens: list[str] = []
-    current_operator: str | None = None
+    current_operator: BooleanOperator | None = None
     saw_operator = False
 
     idx = 0
@@ -78,7 +97,7 @@ def _split_boolean_clauses(raw_tokens: list[str]) -> tuple[list[QueryClause], bo
         token = raw_tokens[idx]
         if token == "AND":
             if idx + 1 < len(raw_tokens) and raw_tokens[idx + 1] == "NOT":
-                operator = "AND NOT"
+                operator: BooleanOperator = "AND NOT"
                 step = 2
             else:
                 operator = "AND"
@@ -91,13 +110,7 @@ def _split_boolean_clauses(raw_tokens: list[str]) -> tuple[list[QueryClause], bo
                 raise ValueError(
                     f"Malformed Boolean query: empty clause between '{current_operator}' and '{operator}'."
                 )
-            clauses.append(
-                QueryClause(
-                    tokens=tuple(tok.lower() for tok in current_tokens),
-                    operator=current_operator,
-                    is_negated=(current_operator == "AND NOT"),
-                )
-            )
+            _flush_clause(clauses, current_tokens, current_operator)
             current_tokens = []
             current_operator = operator
             idx += step
@@ -110,13 +123,7 @@ def _split_boolean_clauses(raw_tokens: list[str]) -> tuple[list[QueryClause], bo
         raise ValueError(f"Malformed Boolean query: missing right clause after '{current_operator}'.")
 
     if current_tokens:
-        clauses.append(
-            QueryClause(
-                tokens=tuple(tok.lower() for tok in current_tokens),
-                operator=current_operator,
-                is_negated=(current_operator == "AND NOT"),
-            )
-        )
+        _flush_clause(clauses, current_tokens, current_operator)
 
     return clauses, saw_operator
 
@@ -131,12 +138,13 @@ def parse_query(raw_query: str, mode: str = "auto") -> ParsedQuery:
     raw_tokens = trimmed.split()
 
     if canonical_mode == "phrase":
-        literal_tokens = tuple(tok.lower() for tok in raw_tokens)
+        literal_clauses: list[QueryClause] = []
+        _flush_clause(literal_clauses, raw_tokens, None)
         return ParsedQuery(
             raw_query=trimmed,
             mode=canonical_mode,
             query_type="phrase",
-            clauses=(QueryClause(tokens=literal_tokens, operator=None, is_negated=False),),
+            clauses=tuple(literal_clauses),
         )
 
     clauses, saw_operator = _split_boolean_clauses(raw_tokens)
@@ -337,7 +345,7 @@ def _build_query_vector(
     raw_weights: list[tuple[str, int, float, float, float]] = []
     squared_sum = 0.0
     for term, raw_tf in positive_counts.items():
-        weighted_tf = 1.0 + math.log10(raw_tf) if raw_tf > 0 else 0.0
+        weighted_tf = compute_weighted_tf(raw_tf)
         idf = model.idf.get(term, 0.0)
         tf_idf = weighted_tf * idf
         squared_sum += tf_idf * tf_idf
