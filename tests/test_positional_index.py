@@ -147,3 +147,42 @@ def test_technology_index_export_reload_roundtrip(
     exported = export_positional_index(technology_index, tmp_path / "part_a")
     reloaded = load_positional_index(exported)
     assert reloaded == technology_index
+
+
+def test_windows_junction_helper_is_deterministic_conditional_and_recovers_stale_links(
+    tmp_path: Path,
+) -> None:
+    """Verify _ensure_safe_windows_dir skips safe paths, reuses deterministic junctions, and heals stale links."""
+    import os
+    from ir_system.spark_indexer import _ensure_safe_windows_dir
+
+    safe_dir = tmp_path / "clean_dir"
+    safe_dir.mkdir()
+    assert _ensure_safe_windows_dir(safe_dir, "test_junc") == safe_dir.resolve()
+
+    if os.name != "nt":
+        return
+
+    unsafe_dir = tmp_path / "dir with & space"
+    unsafe_dir.mkdir()
+    (unsafe_dir / "marker.txt").write_text("ok", encoding="utf-8")
+
+    junction = _ensure_safe_windows_dir(unsafe_dir, "test_junc")
+    try:
+        assert junction != unsafe_dir.resolve()
+        assert " " not in str(junction) and "&" not in str(junction)
+        assert (junction / "marker.txt").read_text(encoding="utf-8") == "ok"
+        assert _ensure_safe_windows_dir(unsafe_dir, "test_junc") == junction
+
+        # Simulate a stale/dangling junction after target directory removal and recreation.
+        (unsafe_dir / "marker.txt").unlink()
+        unsafe_dir.rmdir()
+        unsafe_dir.mkdir()
+        (unsafe_dir / "marker.txt").write_text("recreated", encoding="utf-8")
+
+        repaired = _ensure_safe_windows_dir(unsafe_dir, "test_junc")
+        assert repaired == junction
+        assert (repaired / "marker.txt").read_text(encoding="utf-8") == "recreated"
+    finally:
+        if os.path.lexists(junction):
+            os.rmdir(junction)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 import re
 from typing import Any
 
@@ -60,10 +61,6 @@ class PositionalIndex:
         """Return total Token count across all Documents in the Corpus."""
         return sum(doc.word_count for doc in self.documents)
 
-    def get_positions(self, term: str, doc_id: str) -> tuple[int, ...]:
-        """Return sorted 1-based Positions for a Term in a Document, or empty tuple."""
-        return self.postings.get(term, {}).get(doc_id, ())
-
     def to_dict(self) -> dict[str, Any]:
         """Convert this PositionalIndex into a JSON-serializable dictionary."""
         return {
@@ -115,4 +112,42 @@ class PositionalIndex:
             indexing_seconds=float(payload.get("indexing_seconds", 0.0)),
             corpus_path=str(payload.get("corpus_path", "")),
         )
+
+
+def default_corpus_dir() -> Path:
+    """Resolve the default Technology Version Corpus directory."""
+    cwd_candidate = Path("data") / "2. Technology"
+    if cwd_candidate.is_dir():
+        return cwd_candidate.resolve()
+    return (Path(__file__).resolve().parent.parent.parent / "data" / "2. Technology").resolve()
+
+
+def is_technology_corpus(index: PositionalIndex, corpus_dir: Path | None = None) -> bool:
+    """Return True when the active Corpus matches the default Technology Corpus."""
+    tech_dir = default_corpus_dir()
+    if corpus_dir is not None and corpus_dir.resolve() == tech_dir:
+        return True
+    if index.corpus_path:
+        try:
+            if Path(index.corpus_path).resolve() == tech_dir:
+                return True
+        except OSError:
+            pass
+    if not tech_dir.is_dir():
+        return False
+
+    tech_docs = tuple(
+        (path.stem, text)
+        for path in sorted(
+            (
+                entry
+                for entry in tech_dir.iterdir()
+                if entry.is_file() and entry.suffix.lower() == ".txt"
+            ),
+            key=lambda path: natural_sort_key(path.stem),
+        )
+        if (text := path.read_text(encoding="utf-8")).strip()
+    )
+    active_docs = tuple((doc.doc_id, doc.text) for doc in index.documents)
+    return active_docs == tech_docs
 

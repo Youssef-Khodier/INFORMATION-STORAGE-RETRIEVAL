@@ -4,26 +4,32 @@ import hashlib
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 import pandas as pd
 from pyspark.sql import SparkSession
 import streamlit as st
 
 from ir_system.formatting import (
-    clause_matches_table_data,
+    clause_match_sections,
     df_idf_table_data,
     doc_lengths_table_data,
     documents_table_data,
+    matched_docs_text,
     positional_index_table_data,
     query_heading_label,
     query_similarity_table_data,
     query_weights_table_data,
     term_doc_matrix_data,
 )
-from ir_system.models import PositionalIndex, natural_sort_key
+from ir_system.models import (
+    PositionalIndex,
+    default_corpus_dir,
+    is_technology_corpus,
+    natural_sort_key,
+)
 from ir_system.report import generate_markdown_report
-from ir_system.retrieval import DEFAULT_TECHNOLOGY_QUERIES, QueryResult, execute_query
+from ir_system.retrieval import DEFAULT_TECHNOLOGY_QUERIES, QueryResult, execute_query, run_queries
 from ir_system.spark_indexer import build_positional_index, create_spark_session
 from ir_system.vector_space import VectorSpaceModel, build_vector_space_model
 
@@ -64,14 +70,6 @@ _SAMPLE_QUERY_MODES: dict[str, str] = {
     "machine learning AND data science": "Boolean (AND / AND NOT)",
     "machine learning AND NOT data science": "Boolean (AND / AND NOT)",
 }
-
-
-def default_corpus_dir() -> Path:
-    """Resolve the default Technology Version Corpus directory."""
-    cwd_candidate = Path("data") / "2. Technology"
-    if cwd_candidate.is_dir():
-        return cwd_candidate.resolve()
-    return (Path(__file__).resolve().parent.parent.parent / "data" / "2. Technology").resolve()
 
 
 @st.cache_resource(show_spinner="Starting Apache Spark session...")
@@ -265,11 +263,24 @@ def _render_sidebar() -> tuple[PositionalIndex, VectorSpaceModel]:
             width="stretch",
         )
 
+        upload_mode = st.radio(
+            "Upload Mode",
+            options=("Select .txt files", "Select a folder"),
+            horizontal=True,
+            key="upload_mode",
+        )
+        is_folder_upload = upload_mode == "Select a folder"
+        accept_mode: bool | Literal["directory"] = "directory" if is_folder_upload else True
+        uploader_label = (
+            "Upload a Corpus Folder (.txt files)"
+            if is_folder_upload
+            else "Upload .txt Files"
+        )
         uploaded_files = st.file_uploader(
-            "Upload .txt Files or Folder",
-            accept_multiple_files=True,
+            uploader_label,
+            accept_multiple_files=accept_mode,
             type=None,
-            key="corpus_uploader",
+            key=f"corpus_uploader_{'dir' if is_folder_upload else 'files'}",
         )
 
         if st.session_state.pop("reset_requested", False):
@@ -320,21 +331,18 @@ def _apply_sample_query(sample_query: str, mode_label: str) -> None:
 def _render_query_result(result: QueryResult) -> None:
     """Render structured Phrase/Boolean matches, Query Vector weights, scores, and ranking."""
     st.markdown(f"#### {query_heading_label(result)}")
+    sections = clause_match_sections(result, backticks=True)
 
     if result.parsed_query.query_type == "phrase":
-        headers, rows = clause_matches_table_data(result.clause_matches[0])
+        _, headers, rows = sections[0]
         if rows:
             st.dataframe(_table_to_dataframe(headers, rows), width="stretch", hide_index=True)
         else:
             st.info("No matching documents.")
     else:
-        matched_str = ", ".join(result.matched_doc_ids) if result.matched_doc_ids else "None"
-        st.markdown(f"**Matched documents:** `{matched_str}`")
-        for clause_result in result.clause_matches:
-            clause_phrase = " ".join(clause_result.clause.tokens)
-            prefix = f"{clause_result.clause.operator} " if clause_result.clause.operator else ""
-            st.markdown(f"**Clause {prefix}`{clause_phrase}`**")
-            c_headers, c_rows = clause_matches_table_data(clause_result)
+        st.markdown(f"**Matched documents:** `{matched_docs_text(result)}`")
+        for label, c_headers, c_rows in sections:
+            st.markdown(f"**{label}**")
             if c_rows:
                 st.dataframe(
                     _table_to_dataframe(c_headers, c_rows),
@@ -415,13 +423,25 @@ def _render_query_panel(index: PositionalIndex, model: VectorSpaceModel) -> None
     _render_query_result(result)
 
 
+def build_report_markdown(
+    index: PositionalIndex,
+    model: VectorSpaceModel,
+    query_history: Sequence[QueryResult],
+) -> str:
+    """Build the Markdown report, populating default Technology queries on startup."""
+    report_queries: Sequence[QueryResult] = query_history
+    if not report_queries and is_technology_corpus(index):
+        report_queries = run_queries(index, DEFAULT_TECHNOLOGY_QUERIES, model=model)
+    return generate_markdown_report(index, model, report_queries)
+
+
 def _render_corpus_tabs(
     index: PositionalIndex,
     model: VectorSpaceModel,
     query_history: Sequence[QueryResult],
 ) -> None:
     """Render Part A, Part B, and Markdown report download below the Query Panel."""
-    report_md = generate_markdown_report(index, model, query_history)
+    report_md = build_report_markdown(index, model, query_history)
     st.download_button(
         label="Download Report (Markdown)",
         data=report_md,

@@ -43,13 +43,20 @@ def _ensure_safe_windows_dir(target_dir: Path, prefix: str) -> Path:
 
     digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
     junction_path = temp_root / f"{prefix}_{digest}"
-    if not junction_path.exists():
-        subprocess.run(
-            ["cmd", "/c", "mklink", "/J", str(junction_path), str(resolved)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+    if os.path.lexists(junction_path):
+        if junction_path.exists() and junction_path.resolve() == resolved:
+            return junction_path
+        try:
+            os.rmdir(junction_path)
+        except OSError:
+            junction_path.unlink()
+
+    subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction_path), str(resolved)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     return junction_path
 
 

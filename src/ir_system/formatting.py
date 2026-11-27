@@ -221,6 +221,31 @@ def clause_matches_table_data(
     return headers, rows
 
 
+def matched_docs_text(result: QueryResult) -> str:
+    """Return comma-separated matched Document IDs or 'None'."""
+    return ", ".join(result.matched_doc_ids) if result.matched_doc_ids else "None"
+
+
+def clause_display_label(clause_result: ClauseMatchResult, *, backticks: bool = False) -> str:
+    """Return a display label such as 'Clause AND \"data science\"' or 'Clause AND `data science`'."""
+    clause_phrase = " ".join(clause_result.clause.tokens)
+    prefix = f"{clause_result.clause.operator} " if clause_result.clause.operator else ""
+    wrapped = f"`{clause_phrase}`" if backticks else f'"{clause_phrase}"'
+    return f"Clause {prefix}{wrapped}"
+
+
+def clause_match_sections(
+    result: QueryResult,
+    *,
+    backticks: bool = False,
+) -> list[tuple[str, tuple[str, ...], list[tuple[str, ...]]]]:
+    """Return (clause_label, headers, rows) tuples for each clause in a QueryResult."""
+    return [
+        (clause_display_label(clause_result, backticks=backticks), *clause_matches_table_data(clause_result))
+        for clause_result in result.clause_matches
+    ]
+
+
 def query_weights_table_data(result: QueryResult) -> tuple[tuple[str, ...], list[tuple[str, ...]]]:
     """Return headers and 4-decimal rows for a Query Vector's per-Term weights."""
     headers = ("Query term", "Weighted TF", "Query TF-IDF", "Normalized query weight")
@@ -255,24 +280,21 @@ def query_similarity_table_data(
 def format_query_result(result: QueryResult) -> str:
     """Format a single QueryResult with positions/ranges, 6-decimal length, and 4-decimal scores."""
     lines = [query_heading_label(result)]
+    sections = clause_match_sections(result, backticks=False)
 
     if result.parsed_query.query_type == "phrase":
-        headers, rows = clause_matches_table_data(result.clause_matches[0])
+        _, headers, rows = sections[0]
         if rows:
             lines.append(_render_pipe_table(headers, rows))
         else:
             lines.append("No matching documents.")
     else:
-        matched_str = ", ".join(result.matched_doc_ids) if result.matched_doc_ids else "None"
-        lines.append(f"Matched documents: {matched_str}")
-        for clause_result in result.clause_matches:
-            clause_phrase = " ".join(clause_result.clause.tokens)
-            prefix = f"{clause_result.clause.operator} " if clause_result.clause.operator else ""
-            headers, rows = clause_matches_table_data(clause_result)
+        lines.append(f"Matched documents: {matched_docs_text(result)}")
+        for label, headers, rows in sections:
             if rows:
-                lines.append(f'Clause {prefix}"{clause_phrase}":\n{_render_pipe_table(headers, rows)}')
+                lines.append(f"{label}:\n{_render_pipe_table(headers, rows)}")
             else:
-                lines.append(f'Clause {prefix}"{clause_phrase}": No matching documents.')
+                lines.append(f"{label}: No matching documents.")
 
     lines.append(f"Query vector length = {result.query_length:.6f}")
     w_headers, w_rows = query_weights_table_data(result)

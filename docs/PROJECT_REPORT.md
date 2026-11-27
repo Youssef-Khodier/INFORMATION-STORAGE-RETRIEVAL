@@ -137,7 +137,8 @@ Every dependency declared in [pyproject.toml](../pyproject.toml) serves a specif
 | Package | Group | Version Constraint | Justification |
 | --- | --- | --- | --- |
 | `pyspark` | Core runtime | `==4.0.1` | Mandatory Part A engine for Spark DataFrame ingestion, lowercasing, whitespace splitting, `posexplode` 1-based position generation, and Positional Index aggregation (`local[*]`). Pinned to `4.0.1` for reproducible execution with Python `3.10.20` and Java `17`. |
-| `streamlit` | Core runtime | `>=1.65.0` | Implements the **+1.0 bonus GUI** ([ADR 0003](adr/0003-streamlit-web-gui.md)) with minimal UI boilerplate: interactive folder/file dataset import, 4-mode radio selection, quick-fill query controls, searchable/scrollable matrix tables (via bundled `pandas` / `pyarrow`), `@st.cache_resource` Spark caching, and Markdown report downloads. Core Part A, Part B, and CLI modules remain 100% independent of Streamlit. |
+| `streamlit` | Core runtime | `>=1.65.0` | Implements the **+1.0 bonus GUI** ([ADR 0003](adr/0003-streamlit-web-gui.md)) with minimal UI boilerplate: interactive folder/file dataset import, 4-mode radio selection, quick-fill query controls, searchable/scrollable matrix tables, `@st.cache_resource` Spark caching, and Markdown report downloads. Core Part A, Part B, and CLI modules remain 100% independent of Streamlit. |
+| `pandas` | Core runtime | `>=2.3.3` | Used directly by `src/ir_system/gui.py` (`_table_to_dataframe`) to convert shared `(headers, rows)` formatting tuples into structured `DataFrame` objects for Streamlit's searchable/scrollable `st.dataframe` tables; declared explicitly in `pyproject.toml` per [ADR 0003](adr/0003-streamlit-web-gui.md). |
 | `pytest` | `dev` group | latest compatible | Automated verification framework validating Part A Positional Index construction, all Part B matrices against PDF pages 11–15 within `1e-4`, phrase/Boolean semantics, edge cases, CLI export/reload round-trips, Dataset Flexibility, and headless Streamlit `AppTest` behavior. |
 
 ---
@@ -193,7 +194,7 @@ uv run streamlit run app.py
 **GUI Walkthrough:**
 1. **Startup:** The app automatically indexes `data/2. Technology` once using a cached `SparkSession` (`N = 10` Documents, `27` Terms, `64` Tokens).
 2. **Sidebar — Corpus Import:**
-   - Enter any local folder path under **Local Corpus Folder Path** and click **Load Folder**, or drag-and-drop `.txt` files/folders into **Upload .txt Files or Folder**. Non-`.txt` files are ignored and empty `.txt` files are skipped with warnings; click **Reset to Technology** at any time to restore the default Corpus.
+   - Enter any local folder path under **Local Corpus Folder Path** and click **Load Folder**, or choose **Upload Mode** (`Select .txt files` or `Select a folder`) to upload `.txt` files or a Corpus folder. Non-`.txt` files are ignored and empty `.txt` files are skipped with warnings; click **Reset to Technology** at any time to restore the default Corpus.
 3. **Query & Retrieval Panel:**
    - Choose a **Query Mode** (`Auto`, `Term Search`, `Exact Phrase`, `Boolean (AND / AND NOT)`).
    - Type a query into **Enter Query** or click one of the four quick-fill Technology buttons (`machine learning`, `data science`, `machine learning AND data science`, `machine learning AND NOT data science`).

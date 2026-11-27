@@ -27,6 +27,11 @@ class VectorSpaceModel:
         return build_vector_space_model(index)
 
 
+def compute_weighted_tf(raw_tf: float) -> float:
+    """Return log-scaled Weighted TF (1 + log10(raw_tf)) when raw_tf > 0, else 0.0."""
+    return 1.0 + math.log10(raw_tf) if raw_tf > 0 else 0.0
+
+
 def build_vector_space_model(index: PositionalIndex) -> VectorSpaceModel:
     """Compute Part B vector-space weighting matrices strictly from a PositionalIndex."""
     doc_ids = tuple(sorted((doc.doc_id for doc in index.documents), key=natural_sort_key))
@@ -54,7 +59,7 @@ def build_vector_space_model(index: PositionalIndex) -> VectorSpaceModel:
             if tf > 0:
                 term_df += 1
             term_raw_tf[doc_id] = tf
-            term_weighted_tf[doc_id] = 1.0 + math.log10(tf) if tf > 0 else 0.0
+            term_weighted_tf[doc_id] = compute_weighted_tf(tf)
 
         term_idf = math.log10(doc_count / term_df) if term_df > 0 else 0.0
         term_tf_idf: dict[str, float] = {}
